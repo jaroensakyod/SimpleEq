@@ -1,0 +1,45 @@
+{
+    "manifest_version": 3,
+    "name": "proAiSheet – Equation Renderer",
+    "version": "1.0.0",
+    "description": "Easy Copy and Paste Equation To Word Power By The Coach",
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "permissions": [
+        "sidePanel",
+        "activeTab",
+        "scripting",
+        "clipboardRead"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "background.js"
+    },
+    "side_panel": {
+        "default_path": "sidepanel/index.html"
+    },
+    "action": {
+        "default_title": "Open Equation Renderer",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "content_script.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ]
+}

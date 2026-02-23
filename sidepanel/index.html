@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>⚗️ Simple Eq</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+  <!-- KaTeX – local (CDN is blocked by Chrome Extension CSP) -->
+  <link rel="stylesheet" href="../vendor/katex/katex.min.css" />
+  <script src="../vendor/katex/katex.min.js"></script>
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <div class="header">
+      <span class="header-icon">⚗️</span>
+      <h1 class="header-title">Simple Eq</h1>
+      <span class="auto-badge" id="autoBadge" style="display:none">⚡ Auto</span>
+    </div>
+
+    <!-- Box 1 -->
+    <div class="section">
+      <div class="label-row">
+        <span class="badge badge-blue">1</span>
+        <span class="label-text">วางข้อความ</span>
+        <span class="table-tag" id="tableTag" style="display:none">ตรวจพบตาราง</span>
+        <button class="clear-btn" id="clearBox1" disabled>🗑 ล้าง</button>
+      </div>
+      <div id="box1" class="editable-box" contenteditable="true"
+        data-placeholder="copy จากเว็บไซต์อื่น หรือวางข้อความตรงนี้ — จะเด้งลงมาอัตโนมัติ"></div>
+      <button class="convert-btn" id="convertBtn" disabled>🔄 แปลง</button>
+    </div>
+
+    <!-- Box 2 -->
+    <div class="section">
+      <div class="label-row">
+        <span class="badge badge-purple">2</span>
+        <span class="label-text">แก้ไข</span>
+        <button class="clear-btn" id="clearBox2" disabled>🗑 ล้าง</button>
+      </div>
+      <textarea id="box2" class="latex-box"
+        placeholder="วาง LaTeX ที่นี่ หรือใช้ปุ่มแปลงจากช่องบน&#10;รองรับ $สมการ$ และ $$สมการ$$" rows="5"></textarea>
+    </div>
+
+    <!-- Render Button -->
+    <button class="render-btn" id="renderBtn" disabled>✨ แสดงผล</button>
+
+    <!-- Box 3 -->
+    <div id="box3Wrapper" style="display:none">
+      <div class="divider">
+        <div class="divider-line"></div><span class="divider-text">ผลลัพธ์</span>
+        <div class="divider-line"></div>
+      </div>
+      <div class="label-row">
+        <span class="badge badge-green">3</span>
+        <span class="label-text">ผลลัพธ์</span>
+        <button class="copy-result-btn" id="copyResultBtn">📋 คัดลอก</button>
+      </div>
+      <div id="box3" class="result-box"></div>
+    </div>
+
+    <!-- Footer -->
+    <p class="footer">Copyright © 2026 The Coach inc.</p>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+
+</html>
