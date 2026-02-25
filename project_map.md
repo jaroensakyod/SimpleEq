@@ -66,5 +66,10 @@ graph TD
 -   **Regex Limitations**: ตัวแปลง `convertSymbols` ยังรองรับแค่รูปแบบพื้นฐาน ถ้าเจอสมการซับซ้อนมากต้องแก้ไขด้วยมือใน Box 2
 -   **No Persistence**: สถานะใน Side Panel จะหายไปหากปิด Panel หรือ Refresh Extension (ไม่มี LocalStorage sync สำหรับร่างที่ทำค้างไว้)
 
+## 🏁 Phase Updates
+- ✅ Phase 3/4: Logout flow & Stability Improvements
+- ✅ Extension ID Locked (Fixed ID via manifest key)
+- ✅ Production-ready CORS / Authentication sync
+
 ---
-*Last Updated: 2026-02-24 via Oracle Keeper*
+*Last Updated: 2026-02-25 via Oracle Keeper*
