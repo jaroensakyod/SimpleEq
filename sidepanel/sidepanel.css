@@ -91,6 +91,28 @@ body {
   border-color: rgba(239,68,68,0.35);
 }
 
+.logout-btn {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(248,113,113,.35);
+  color: #fecaca;
+  background: rgba(239,68,68,.15);
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+
+.logout-btn:disabled {
+  opacity: .7;
+  cursor: not-allowed;
+}
+
+.logout-btn:not(:disabled):hover {
+  background: rgba(239,68,68,.25);
+}
+
 .upgrade-btn {
   font-size: 10px;
   font-weight: 600;

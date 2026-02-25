@@ -14,6 +14,7 @@ const clearBox2 = document.getElementById('clearBox2');
 const tableTag = document.getElementById('tableTag');
 const autoBadge = document.getElementById('autoBadge');
 const memberBadge = document.getElementById('memberBadge');
+const logoutBtn = document.getElementById('logoutBtn');
 const upgradeBtn = document.getElementById('upgradeBtn');
 const box3Wrapper = document.getElementById('box3Wrapper');
 const box3 = document.getElementById('box3');
@@ -27,6 +28,7 @@ const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
 
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
+const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/auth/sign-out`;
 const STATUS_POLLING_INTERVAL_MS = 45000;
 
 /* ----------------------------------------------------------------
@@ -45,6 +47,58 @@ let isStatusSyncing = false;
 let consecutiveSyncFailures = 0;
 let lastStatusCheckAt = null;
 let guardMetaContext = 'ระบบจะตรวจสอบสถานะอัตโนมัติทุก 45 วินาที';
+let isLoggingOut = false;
+
+function setLogoutButtonState(visible, isLoading = false) {
+    if (!logoutBtn) return;
+
+    logoutBtn.style.display = visible ? '' : 'none';
+    logoutBtn.disabled = isLoading;
+    logoutBtn.textContent = isLoading ? '⏳ Logging out...' : '🚪 Logout';
+}
+
+function resetExtensionStateAfterLogout() {
+    box1.innerHTML = '';
+    box2.value = '';
+    originalText = '';
+    originalHtml = '';
+    latexText = '';
+    hasTable = false;
+    box3.innerHTML = '';
+    box3Wrapper.style.display = 'none';
+    autoBadge.style.display = 'none';
+    syncState();
+}
+
+async function handleLogout() {
+    if (isLoggingOut) return;
+
+    isLoggingOut = true;
+    setLogoutButtonState(true, true);
+
+    try {
+        await fetch(SIGN_OUT_ENDPOINT, {
+            method: 'POST',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/json' },
+        });
+    } catch (error) {
+        guardMetaContext = 'Logout สำเร็จบางส่วน กรุณาตรวจสอบสถานะอีกครั้ง';
+    } finally {
+        resetExtensionStateAfterLogout();
+        guardMetaContext = 'ออกจากระบบแล้ว กรุณาล็อกอินอีกครั้งเพื่อใช้งานต่อ';
+        renderMemberState('ANONYMOUS', `${HUB_BASE_URL}/auth/login`);
+        setAuthGuard(true, 'ออกจากระบบเรียบร้อยแล้ว กรุณาล็อกอินใหม่', 'Login to SimpleEq Hub', `${HUB_BASE_URL}/auth/login`);
+        await syncMemberStatusFromHub();
+        isLoggingOut = false;
+        if (!isAuthLocked) {
+            setLogoutButtonState(true, false);
+            return;
+        }
+        setLogoutButtonState(false, false);
+    }
+}
 
 function formatTime(date) {
     const safeDate = date instanceof Date ? date : new Date(date);
@@ -104,6 +158,7 @@ function renderMemberState(state, link = '', note = '') {
         memberBadge.classList.add('free');
         upgradeLink = link || '';
         upgradeBtn.style.display = 'none';
+        setLogoutButtonState(false, false);
         return;
     }
 
@@ -112,6 +167,7 @@ function renderMemberState(state, link = '', note = '') {
         memberBadge.classList.add('pro');
         upgradeBtn.style.display = 'none';
         upgradeLink = '';
+        setLogoutButtonState(true, false);
         return;
     }
 
@@ -120,6 +176,7 @@ function renderMemberState(state, link = '', note = '') {
         memberBadge.classList.add('free');
         upgradeLink = link || '';
         upgradeBtn.style.display = upgradeLink ? '' : 'none';
+        setLogoutButtonState(true, false);
         return;
     }
 
@@ -127,6 +184,7 @@ function renderMemberState(state, link = '', note = '') {
     memberBadge.classList.add('error');
     upgradeBtn.style.display = 'none';
     upgradeLink = '';
+    setLogoutButtonState(false, false);
 }
 
 async function syncMemberStatusFromHub() {
@@ -499,6 +557,10 @@ authGuardActionBtn.addEventListener('click', () => {
 
 authGuardRefreshBtn.addEventListener('click', () => {
     syncMemberStatusFromHub();
+});
+
+logoutBtn.addEventListener('click', () => {
+    handleLogout();
 });
 
 /* ----------------------------------------------------------------
