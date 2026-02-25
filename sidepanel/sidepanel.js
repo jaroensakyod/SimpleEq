@@ -18,9 +18,14 @@ const upgradeBtn = document.getElementById('upgradeBtn');
 const box3Wrapper = document.getElementById('box3Wrapper');
 const box3 = document.getElementById('box3');
 const copyResultBtn = document.getElementById('copyResultBtn');
+const toolsArea = document.getElementById('toolsArea');
+const authGuard = document.getElementById('authGuard');
+const authGuardMessage = document.getElementById('authGuardMessage');
+const authGuardActionBtn = document.getElementById('authGuardActionBtn');
 
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
+const STATUS_POLLING_INTERVAL_MS = 45000;
 
 /* ----------------------------------------------------------------
    2.  State
@@ -31,6 +36,30 @@ let latexText = '';
 let hasTable = false;
 let isEmpty = true;
 let upgradeLink = '';
+let isAuthLocked = true;
+let authActionLink = `${HUB_BASE_URL}/auth/login`;
+let statusPollingTimer = null;
+
+function openExternalLink(url) {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function setAuthGuard(locked, message = 'Please Login to SimpleEq Hub to continue.', actionLabel = 'ไปที่ SimpleEq Hub', actionLink = `${HUB_BASE_URL}/auth/login`) {
+    isAuthLocked = locked;
+    authActionLink = actionLink || `${HUB_BASE_URL}/auth/login`;
+
+    authGuard.hidden = !locked;
+    toolsArea.classList.toggle('is-locked', locked);
+    authGuardMessage.textContent = message;
+    authGuardActionBtn.textContent = actionLabel;
+
+    box1.setAttribute('contenteditable', locked ? 'false' : 'true');
+    box2.disabled = locked;
+    box2.style.cursor = locked ? 'not-allowed' : '';
+
+    syncState();
+}
 
 function renderMemberState(state, link = '', note = '') {
     memberBadge.classList.remove('pro', 'free', 'error');
@@ -71,21 +100,65 @@ async function syncMemberStatusFromHub() {
         if (!response.ok) {
             if (payload?.code === 'ORIGIN_NOT_ALLOWED') {
                 renderMemberState('ERROR', '', 'Origin not allowed');
+                setAuthGuard(true, 'Unauthorized origin. กรุณาใช้งาน Extension ID ที่อนุญาตเท่านั้น', 'เปิดหน้า Hub', HUB_BASE_URL);
                 return;
             }
             renderMemberState('ERROR');
+            setAuthGuard(true, 'ไม่สามารถตรวจสอบสถานะสมาชิกได้ในตอนนี้', 'เปิดหน้า Hub', HUB_BASE_URL);
+            return;
+        }
+
+        if (payload?.status === 'ANONYMOUS') {
+            renderMemberState('FREE', payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`);
+            setAuthGuard(
+                true,
+                'Please Login to SimpleEq Hub to continue.',
+                'Login to SimpleEq Hub',
+                payload?.link || `${HUB_BASE_URL}/auth/login`
+            );
             return;
         }
 
         if (payload?.status === 'PRO') {
             renderMemberState('PRO');
+            setAuthGuard(false);
             return;
         }
 
-        renderMemberState('FREE', payload?.link || '');
+        const onboardingLink = payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`;
+        renderMemberState('FREE', onboardingLink);
+
+        if (payload?.onboardingRequired) {
+            setAuthGuard(
+                true,
+                'ชำระเงินและส่งสลิปก่อนเปิดใช้งานฟีเจอร์ทั้งหมด',
+                'ไปหน้า Onboarding',
+                onboardingLink
+            );
+            return;
+        }
+
+        setAuthGuard(
+            true,
+            'ระบบกำลังรอการอนุมัติ PRO จากแอดมิน หลังอนุมัติจะปลดล็อกอัตโนมัติ',
+            'เปิดหน้า Hub',
+            onboardingLink
+        );
     } catch (e) {
         renderMemberState('ERROR');
+        setAuthGuard(true, 'เชื่อมต่อ Hub ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', 'เปิดหน้า Hub', HUB_BASE_URL);
     }
+}
+
+function startStatusPolling() {
+    if (statusPollingTimer) {
+        clearInterval(statusPollingTimer);
+    }
+
+    syncMemberStatusFromHub();
+    statusPollingTimer = setInterval(() => {
+        syncMemberStatusFromHub();
+    }, STATUS_POLLING_INTERVAL_MS);
 }
 
 /* ----------------------------------------------------------------
@@ -279,13 +352,14 @@ function syncState() {
     originalText = innerHtmlToPlainText(box1);
     latexText = box2.value;
 
-    clearBox1.disabled = isEmpty;
-    clearBox2.disabled = !latexText.trim();
-    convertBtn.disabled = isEmpty;
+    clearBox1.disabled = isAuthLocked || isEmpty;
+    clearBox2.disabled = isAuthLocked || !latexText.trim();
+    convertBtn.disabled = isAuthLocked || isEmpty;
     tableTag.style.display = hasTable ? '' : 'none';
 
     const canRender = hasTable ? !!originalHtml : !!latexText.trim();
-    renderBtn.disabled = !canRender;
+    renderBtn.disabled = isAuthLocked || !canRender;
+    copyResultBtn.disabled = isAuthLocked;
 }
 
 /* ----------------------------------------------------------------
@@ -298,6 +372,7 @@ box2.addEventListener('input', syncState);
 box2.addEventListener('paste', () => setTimeout(syncState, 0));
 
 convertBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     const result = textToLatex(originalText);
     box2.value = result;
     latexText = result;
@@ -311,6 +386,7 @@ convertBtn.addEventListener('click', () => {
 });
 
 renderBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box3Wrapper.style.display = '';
     if (hasTable && originalHtml) {
         renderWordHtml(originalHtml, box3);
@@ -320,6 +396,7 @@ renderBtn.addEventListener('click', () => {
 });
 
 clearBox1.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box1.innerHTML = '';
     originalText = ''; originalHtml = ''; hasTable = false;
     box3Wrapper.style.display = 'none';
@@ -327,12 +404,14 @@ clearBox1.addEventListener('click', () => {
 });
 
 clearBox2.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box2.value = ''; latexText = '';
     box3Wrapper.style.display = 'none';
     syncState();
 });
 
 copyResultBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(box3);
@@ -350,7 +429,11 @@ copyResultBtn.addEventListener('click', () => {
 
 upgradeBtn.addEventListener('click', () => {
     if (!upgradeLink) return;
-    window.open(upgradeLink, '_blank', 'noopener,noreferrer');
+    openExternalLink(upgradeLink);
+});
+
+authGuardActionBtn.addEventListener('click', () => {
+    openExternalLink(authActionLink);
 });
 
 /* ----------------------------------------------------------------
@@ -389,8 +472,7 @@ function connectToBackground() {
 }
 
 connectToBackground();
-
-syncMemberStatusFromHub();
+startStatusPolling();
 
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
