@@ -13,9 +13,14 @@ const clearBox1 = document.getElementById('clearBox1');
 const clearBox2 = document.getElementById('clearBox2');
 const tableTag = document.getElementById('tableTag');
 const autoBadge = document.getElementById('autoBadge');
+const memberBadge = document.getElementById('memberBadge');
+const upgradeBtn = document.getElementById('upgradeBtn');
 const box3Wrapper = document.getElementById('box3Wrapper');
 const box3 = document.getElementById('box3');
 const copyResultBtn = document.getElementById('copyResultBtn');
+
+const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'http://localhost:3000';
+const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
 
 /* ----------------------------------------------------------------
    2.  State
@@ -25,6 +30,63 @@ let originalHtml = '';
 let latexText = '';
 let hasTable = false;
 let isEmpty = true;
+let upgradeLink = '';
+
+function renderMemberState(state, link = '', note = '') {
+    memberBadge.classList.remove('pro', 'free', 'error');
+
+    if (state === 'PRO') {
+        memberBadge.textContent = '✅ PRO';
+        memberBadge.classList.add('pro');
+        upgradeBtn.style.display = 'none';
+        upgradeLink = '';
+        return;
+    }
+
+    if (state === 'FREE') {
+        memberBadge.textContent = '🆓 FREE';
+        memberBadge.classList.add('free');
+        upgradeLink = link || '';
+        upgradeBtn.style.display = upgradeLink ? '' : 'none';
+        return;
+    }
+
+    memberBadge.textContent = note ? `⚠️ ${note}` : '⚠️ Status unavailable';
+    memberBadge.classList.add('error');
+    upgradeBtn.style.display = 'none';
+    upgradeLink = '';
+}
+
+async function syncMemberStatusFromHub() {
+    try {
+        const response = await fetch(USER_STATUS_ENDPOINT, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/json' },
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+            if (payload?.code === 'ORIGIN_NOT_ALLOWED') {
+                renderMemberState('ERROR', '', 'Origin not allowed');
+                return;
+            }
+            renderMemberState('ERROR');
+            return;
+        }
+
+        if (payload?.status === 'PRO') {
+            renderMemberState('PRO');
+            return;
+        }
+
+        renderMemberState('FREE', payload?.link || '');
+    } catch (e) {
+        renderMemberState('ERROR');
+    }
+}
 
 /* ----------------------------------------------------------------
    3.  Helpers – innerHtml → plain text (preserve table / list)
@@ -286,6 +348,11 @@ copyResultBtn.addEventListener('click', () => {
     }, 2500);
 });
 
+upgradeBtn.addEventListener('click', () => {
+    if (!upgradeLink) return;
+    window.open(upgradeLink, '_blank', 'noopener,noreferrer');
+});
+
 /* ----------------------------------------------------------------
    8.  Connect to background via Port → receive COPY_EVENT
         (In MV3, side panels must use long-lived ports to receive
@@ -322,6 +389,14 @@ function connectToBackground() {
 }
 
 connectToBackground();
+
+syncMemberStatusFromHub();
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        syncMemberStatusFromHub();
+    }
+});
 
 /* Initial sync */
 syncState();
