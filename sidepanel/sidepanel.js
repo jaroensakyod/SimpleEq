@@ -28,7 +28,7 @@ const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
 
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
-const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/auth/sign-out`;
+const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/v1/auth/sign-out`;
 const STATUS_POLLING_INTERVAL_MS = 45000;
 
 /* ----------------------------------------------------------------
@@ -77,12 +77,20 @@ async function handleLogout() {
     setLogoutButtonState(true, true);
 
     try {
-        await fetch(SIGN_OUT_ENDPOINT, {
+        const response = await fetch(SIGN_OUT_ENDPOINT, {
             method: 'POST',
             credentials: 'include',
             cache: 'no-store',
-            headers: { Accept: 'application/json' },
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
         });
+
+        if (!response.ok) {
+            throw new Error(`LOGOUT_FAILED_${response.status}`);
+        }
     } catch (error) {
         guardMetaContext = 'Logout สำเร็จบางส่วน กรุณาตรวจสอบสถานะอีกครั้ง';
     } finally {
