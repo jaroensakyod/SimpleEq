@@ -21,7 +21,9 @@ const copyResultBtn = document.getElementById('copyResultBtn');
 const toolsArea = document.getElementById('toolsArea');
 const authGuard = document.getElementById('authGuard');
 const authGuardMessage = document.getElementById('authGuardMessage');
+const authGuardMeta = document.getElementById('authGuardMeta');
 const authGuardActionBtn = document.getElementById('authGuardActionBtn');
+const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
 
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
@@ -39,6 +41,38 @@ let upgradeLink = '';
 let isAuthLocked = true;
 let authActionLink = `${HUB_BASE_URL}/auth/login`;
 let statusPollingTimer = null;
+let isStatusSyncing = false;
+let consecutiveSyncFailures = 0;
+let lastStatusCheckAt = null;
+let guardMetaContext = 'ระบบจะตรวจสอบสถานะอัตโนมัติทุก 45 วินาที';
+
+function formatTime(date) {
+    const safeDate = date instanceof Date ? date : new Date(date);
+    return safeDate.toLocaleTimeString('th-TH', { hour12: false });
+}
+
+function renderGuardMeta() {
+    if (!authGuardMeta || !authGuardRefreshBtn) return;
+
+    const messageParts = [];
+
+    if (isStatusSyncing) {
+        messageParts.push('กำลังตรวจสอบสถานะ...');
+    } else if (guardMetaContext) {
+        messageParts.push(guardMetaContext);
+    }
+
+    if (lastStatusCheckAt) {
+        messageParts.push(`ตรวจล่าสุด ${formatTime(lastStatusCheckAt)}`);
+    }
+
+    if (consecutiveSyncFailures >= 3) {
+        messageParts.push('หากยังไม่อัปเดต ลองปิด-เปิด Side Panel หรือ Reload Extension');
+    }
+
+    authGuardMeta.textContent = messageParts.join(' • ');
+    authGuardRefreshBtn.hidden = !isAuthLocked;
+}
 
 function openExternalLink(url) {
     if (!url) return;
@@ -58,11 +92,20 @@ function setAuthGuard(locked, message = 'Please Login to SimpleEq Hub to continu
     box2.disabled = locked;
     box2.style.cursor = locked ? 'not-allowed' : '';
 
+    renderGuardMeta();
     syncState();
 }
 
 function renderMemberState(state, link = '', note = '') {
     memberBadge.classList.remove('pro', 'free', 'error');
+
+    if (state === 'ANONYMOUS') {
+        memberBadge.textContent = '🔒 LOGIN';
+        memberBadge.classList.add('free');
+        upgradeLink = link || '';
+        upgradeBtn.style.display = 'none';
+        return;
+    }
 
     if (state === 'PRO') {
         memberBadge.textContent = '✅ PRO';
@@ -87,6 +130,9 @@ function renderMemberState(state, link = '', note = '') {
 }
 
 async function syncMemberStatusFromHub() {
+    isStatusSyncing = true;
+    renderGuardMeta();
+
     try {
         const response = await fetch(USER_STATUS_ENDPOINT, {
             method: 'GET',
@@ -98,18 +144,24 @@ async function syncMemberStatusFromHub() {
         const payload = await response.json();
 
         if (!response.ok) {
+            consecutiveSyncFailures += 1;
             if (payload?.code === 'ORIGIN_NOT_ALLOWED') {
                 renderMemberState('ERROR', '', 'Origin not allowed');
+                guardMetaContext = 'ระบบไม่อนุญาต Origin นี้';
                 setAuthGuard(true, 'Unauthorized origin. กรุณาใช้งาน Extension ID ที่อนุญาตเท่านั้น', 'เปิดหน้า Hub', HUB_BASE_URL);
                 return;
             }
             renderMemberState('ERROR');
+            guardMetaContext = 'ระบบตรวจสอบสถานะไม่สำเร็จ กดตรวจสอบอีกครั้งได้ทันที';
             setAuthGuard(true, 'ไม่สามารถตรวจสอบสถานะสมาชิกได้ในตอนนี้', 'เปิดหน้า Hub', HUB_BASE_URL);
             return;
         }
 
+        consecutiveSyncFailures = 0;
+
         if (payload?.status === 'ANONYMOUS') {
-            renderMemberState('FREE', payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`);
+            guardMetaContext = 'ล็อกอินแล้วรอสักครู่ ระบบจะอัปเดตสถานะอัตโนมัติ';
+            renderMemberState('ANONYMOUS', payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`);
             setAuthGuard(
                 true,
                 'Please Login to SimpleEq Hub to continue.',
@@ -121,6 +173,7 @@ async function syncMemberStatusFromHub() {
 
         if (payload?.status === 'PRO') {
             renderMemberState('PRO');
+            guardMetaContext = '';
             setAuthGuard(false);
             return;
         }
@@ -129,6 +182,7 @@ async function syncMemberStatusFromHub() {
         renderMemberState('FREE', onboardingLink);
 
         if (payload?.onboardingRequired) {
+            guardMetaContext = 'ชำระเงินแล้วให้รอสักครู่ ระบบกำลังตรวจสอบสถานะให้อัตโนมัติ';
             setAuthGuard(
                 true,
                 'ชำระเงินและส่งสลิปก่อนเปิดใช้งานฟีเจอร์ทั้งหมด',
@@ -138,6 +192,7 @@ async function syncMemberStatusFromHub() {
             return;
         }
 
+        guardMetaContext = 'กำลังรอแอดมินอนุมัติ PRO ระบบจะตรวจสอบให้อัตโนมัติทุก 45 วินาที';
         setAuthGuard(
             true,
             'ระบบกำลังรอการอนุมัติ PRO จากแอดมิน หลังอนุมัติจะปลดล็อกอัตโนมัติ',
@@ -145,8 +200,14 @@ async function syncMemberStatusFromHub() {
             onboardingLink
         );
     } catch (e) {
+        consecutiveSyncFailures += 1;
         renderMemberState('ERROR');
+        guardMetaContext = 'เชื่อมต่อ Hub ไม่สำเร็จ กดตรวจสอบอีกครั้ง หรือรอสักครู่';
         setAuthGuard(true, 'เชื่อมต่อ Hub ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', 'เปิดหน้า Hub', HUB_BASE_URL);
+    } finally {
+        lastStatusCheckAt = new Date();
+        isStatusSyncing = false;
+        renderGuardMeta();
     }
 }
 
@@ -434,6 +495,10 @@ upgradeBtn.addEventListener('click', () => {
 
 authGuardActionBtn.addEventListener('click', () => {
     openExternalLink(authActionLink);
+});
+
+authGuardRefreshBtn.addEventListener('click', () => {
+    syncMemberStatusFromHub();
 });
 
 /* ----------------------------------------------------------------

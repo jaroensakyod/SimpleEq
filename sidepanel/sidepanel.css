@@ -304,9 +304,17 @@ body {
   color: #cbd5e1;
 }
 
+.auth-guard-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #93c5fd;
+}
+
 .auth-guard-actions {
   display: flex;
   justify-content: center;
+  gap: 8px;
   margin-top: 12px;
 }
 
@@ -324,6 +332,22 @@ body {
 
 .auth-guard-btn:hover {
   background: rgba(59,130,246,.28);
+}
+
+.auth-guard-btn-secondary {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 9px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148,163,184,.35);
+  color: #cbd5e1;
+  background: rgba(148,163,184,.18);
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.auth-guard-btn-secondary:hover {
+  background: rgba(148,163,184,.28);
 }
 
 /* KaTeX display overrides */
