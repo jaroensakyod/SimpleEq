@@ -57,6 +57,20 @@ Any Webpage   ──── Copy ────▶  Simple Eq (Side Panel)  ──�
 5. Select the `SimpleEq` folder
 6. The ⚗️ icon will appear in your Chrome toolbar
 
+## 🔐 Fixed Extension ID (Recommended for Selling)
+
+ถ้าต้องการแจกไฟล์ให้ลูกค้าติดตั้งเองหลายคน แต่ให้ Hub allow ได้แบบครั้งเดียว ให้ตั้งค่า Fixed ID:
+
+1. สร้าง extension keypair (เก็บ private key ไว้นอก repo)
+2. นำ public key ที่ได้ไปใส่ฟิลด์ `key` ใน `manifest.json`
+3. Re-load unpacked extension แล้วคัดลอก Extension ID
+4. ใส่ค่านั้นใน Hub env: `ALLOWED_EXTENSION_IDS="<extension-id>"`
+
+ผลลัพธ์:
+- ลูกค้าทุกคนจะได้ Extension ID เดียวกัน
+- Hub ไม่ต้อง whitelist origin ทีละคน
+- CORS และ Auth trust จะนิ่งและ scale ได้
+
 ---
 
 ## 📖 How to Use
