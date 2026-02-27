@@ -18,48 +18,65 @@
     <div class="header">
       <span class="header-icon">⚗️</span>
       <h1 class="header-title">Simple Eq</h1>
+      <span class="member-badge" id="memberBadge">⏳ Checking...</span>
+      <button class="logout-btn" id="logoutBtn" type="button" style="display:none">🚪 Logout</button>
+      <button class="upgrade-btn" id="upgradeBtn" style="display:none">⬆️ Upgrade</button>
       <span class="auto-badge" id="autoBadge" style="display:none">⚡ Auto</span>
     </div>
 
-    <!-- Box 1 -->
-    <div class="section">
-      <div class="label-row">
-        <span class="badge badge-blue">1</span>
-        <span class="label-text">วางข้อความ</span>
-        <span class="table-tag" id="tableTag" style="display:none">ตรวจพบตาราง</span>
-        <button class="clear-btn" id="clearBox1" disabled>🗑 ล้าง</button>
+    <div class="tools-area" id="toolsArea">
+      <!-- Box 1 -->
+      <div class="section">
+        <div class="label-row">
+          <span class="badge badge-blue">1</span>
+          <span class="label-text">วางข้อความ</span>
+          <span class="table-tag" id="tableTag" style="display:none">ตรวจพบตาราง</span>
+          <button class="clear-btn" id="clearBox1" disabled>🗑 ล้าง</button>
+        </div>
+        <div id="box1" class="editable-box" contenteditable="true"
+          data-placeholder="copy จากเว็บไซต์อื่น หรือวางข้อความตรงนี้ — จะเด้งลงมาอัตโนมัติ"></div>
+        <button class="convert-btn" id="convertBtn" disabled>🔄 แปลง</button>
       </div>
-      <div id="box1" class="editable-box" contenteditable="true"
-        data-placeholder="copy จากเว็บไซต์อื่น หรือวางข้อความตรงนี้ — จะเด้งลงมาอัตโนมัติ"></div>
-      <button class="convert-btn" id="convertBtn" disabled>🔄 แปลง</button>
-    </div>
 
-    <!-- Box 2 -->
-    <div class="section">
-      <div class="label-row">
-        <span class="badge badge-purple">2</span>
-        <span class="label-text">แก้ไข</span>
-        <button class="clear-btn" id="clearBox2" disabled>🗑 ล้าง</button>
+      <!-- Box 2 -->
+      <div class="section">
+        <div class="label-row">
+          <span class="badge badge-purple">2</span>
+          <span class="label-text">แก้ไข</span>
+          <button class="clear-btn" id="clearBox2" disabled>🗑 ล้าง</button>
+        </div>
+        <textarea id="box2" class="latex-box"
+          placeholder="วาง LaTeX ที่นี่ หรือใช้ปุ่มแปลงจากช่องบน&#10;รองรับ $สมการ$ และ $$สมการ$$" rows="5"></textarea>
       </div>
-      <textarea id="box2" class="latex-box"
-        placeholder="วาง LaTeX ที่นี่ หรือใช้ปุ่มแปลงจากช่องบน&#10;รองรับ $สมการ$ และ $$สมการ$$" rows="5"></textarea>
-    </div>
 
-    <!-- Render Button -->
-    <button class="render-btn" id="renderBtn" disabled>✨ แสดงผล</button>
+      <!-- Render Button -->
+      <button class="render-btn" id="renderBtn" disabled>✨ แสดงผล</button>
 
-    <!-- Box 3 -->
-    <div id="box3Wrapper" style="display:none">
-      <div class="divider">
-        <div class="divider-line"></div><span class="divider-text">ผลลัพธ์</span>
-        <div class="divider-line"></div>
+      <!-- Box 3 -->
+      <div id="box3Wrapper" style="display:none">
+        <div class="divider">
+          <div class="divider-line"></div><span class="divider-text">ผลลัพธ์</span>
+          <div class="divider-line"></div>
+        </div>
+        <div class="label-row">
+          <span class="badge badge-green">3</span>
+          <span class="label-text">ผลลัพธ์</span>
+          <button class="copy-result-btn" id="copyResultBtn">📋 คัดลอก</button>
+        </div>
+        <div id="box3" class="result-box"></div>
       </div>
-      <div class="label-row">
-        <span class="badge badge-green">3</span>
-        <span class="label-text">ผลลัพธ์</span>
-        <button class="copy-result-btn" id="copyResultBtn">📋 คัดลอก</button>
+
+      <div class="auth-guard" id="authGuard" hidden>
+        <div class="auth-guard-card">
+          <h2 class="auth-guard-title">ล็อกอินก่อนใช้งาน</h2>
+          <p class="auth-guard-message" id="authGuardMessage">Please Login to SimpleEq Hub to continue.</p>
+          <p class="auth-guard-meta" id="authGuardMeta">ระบบจะตรวจสอบสถานะอัตโนมัติทุก 45 วินาที</p>
+          <div class="auth-guard-actions">
+            <button class="auth-guard-btn-secondary" id="authGuardRefreshBtn" type="button">ตรวจสอบอีกครั้ง</button>
+            <button class="auth-guard-btn" id="authGuardActionBtn" type="button">ไปที่ SimpleEq Hub</button>
+          </div>
+        </div>
       </div>
-      <div id="box3" class="result-box"></div>
     </div>
 
     <!-- Footer -->

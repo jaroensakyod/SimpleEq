@@ -13,9 +13,23 @@ const clearBox1 = document.getElementById('clearBox1');
 const clearBox2 = document.getElementById('clearBox2');
 const tableTag = document.getElementById('tableTag');
 const autoBadge = document.getElementById('autoBadge');
+const memberBadge = document.getElementById('memberBadge');
+const logoutBtn = document.getElementById('logoutBtn');
+const upgradeBtn = document.getElementById('upgradeBtn');
 const box3Wrapper = document.getElementById('box3Wrapper');
 const box3 = document.getElementById('box3');
 const copyResultBtn = document.getElementById('copyResultBtn');
+const toolsArea = document.getElementById('toolsArea');
+const authGuard = document.getElementById('authGuard');
+const authGuardMessage = document.getElementById('authGuardMessage');
+const authGuardMeta = document.getElementById('authGuardMeta');
+const authGuardActionBtn = document.getElementById('authGuardActionBtn');
+const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
+
+const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'https://simple-eq-hub.vercel.app' || 'http://localhost:3000';
+const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
+const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/v1/auth/sign-out`;
+const STATUS_POLLING_INTERVAL_MS = 45000;
 
 /* ----------------------------------------------------------------
    2.  State
@@ -25,6 +39,254 @@ let originalHtml = '';
 let latexText = '';
 let hasTable = false;
 let isEmpty = true;
+let upgradeLink = '';
+let isAuthLocked = true;
+let authActionLink = `${HUB_BASE_URL}/auth/login`;
+let statusPollingTimer = null;
+let isStatusSyncing = false;
+let consecutiveSyncFailures = 0;
+let lastStatusCheckAt = null;
+let guardMetaContext = 'ระบบจะตรวจสอบสถานะอัตโนมัติทุก 45 วินาที';
+let isLoggingOut = false;
+
+function setLogoutButtonState(visible, isLoading = false) {
+    if (!logoutBtn) return;
+
+    logoutBtn.style.display = visible ? '' : 'none';
+    logoutBtn.disabled = isLoading;
+    logoutBtn.textContent = isLoading ? '⏳ Logging out...' : '🚪 Logout';
+}
+
+function resetExtensionStateAfterLogout() {
+    box1.innerHTML = '';
+    box2.value = '';
+    originalText = '';
+    originalHtml = '';
+    latexText = '';
+    hasTable = false;
+    box3.innerHTML = '';
+    box3Wrapper.style.display = 'none';
+    autoBadge.style.display = 'none';
+    syncState();
+}
+
+async function handleLogout() {
+    if (isLoggingOut) return;
+
+    isLoggingOut = true;
+    setLogoutButtonState(true, true);
+
+    try {
+        const response = await fetch(SIGN_OUT_ENDPOINT, {
+            method: 'POST',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+            throw new Error(`LOGOUT_FAILED_${response.status}`);
+        }
+    } catch (error) {
+        guardMetaContext = 'Logout สำเร็จบางส่วน กรุณาตรวจสอบสถานะอีกครั้ง';
+    } finally {
+        resetExtensionStateAfterLogout();
+        guardMetaContext = 'ออกจากระบบแล้ว กรุณาล็อกอินอีกครั้งเพื่อใช้งานต่อ';
+        renderMemberState('ANONYMOUS', `${HUB_BASE_URL}/auth/login`);
+        setAuthGuard(true, 'ออกจากระบบเรียบร้อยแล้ว กรุณาล็อกอินใหม่', 'Login to SimpleEq Hub', `${HUB_BASE_URL}/auth/login`);
+        await syncMemberStatusFromHub();
+        isLoggingOut = false;
+        if (!isAuthLocked) {
+            setLogoutButtonState(true, false);
+            return;
+        }
+        setLogoutButtonState(false, false);
+    }
+}
+
+function formatTime(date) {
+    const safeDate = date instanceof Date ? date : new Date(date);
+    return safeDate.toLocaleTimeString('th-TH', { hour12: false });
+}
+
+function renderGuardMeta() {
+    if (!authGuardMeta || !authGuardRefreshBtn) return;
+
+    const messageParts = [];
+
+    if (isStatusSyncing) {
+        messageParts.push('กำลังตรวจสอบสถานะ...');
+    } else if (guardMetaContext) {
+        messageParts.push(guardMetaContext);
+    }
+
+    if (lastStatusCheckAt) {
+        messageParts.push(`ตรวจล่าสุด ${formatTime(lastStatusCheckAt)}`);
+    }
+
+    if (consecutiveSyncFailures >= 3) {
+        messageParts.push('หากยังไม่อัปเดต ลองปิด-เปิด Side Panel หรือ Reload Extension');
+    }
+
+    authGuardMeta.textContent = messageParts.join(' • ');
+    authGuardRefreshBtn.hidden = !isAuthLocked;
+}
+
+function openExternalLink(url) {
+    if (!url) return;
+    window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+function setAuthGuard(locked, message = 'Please Login to SimpleEq Hub to continue.', actionLabel = 'ไปที่ SimpleEq Hub', actionLink = `${HUB_BASE_URL}/auth/login`) {
+    isAuthLocked = locked;
+    authActionLink = actionLink || `${HUB_BASE_URL}/auth/login`;
+
+    authGuard.hidden = !locked;
+    toolsArea.classList.toggle('is-locked', locked);
+    authGuardMessage.textContent = message;
+    authGuardActionBtn.textContent = actionLabel;
+
+    box1.setAttribute('contenteditable', locked ? 'false' : 'true');
+    box2.disabled = locked;
+    box2.style.cursor = locked ? 'not-allowed' : '';
+
+    renderGuardMeta();
+    syncState();
+}
+
+function renderMemberState(state, link = '', note = '') {
+    memberBadge.classList.remove('pro', 'free', 'error');
+
+    if (state === 'ANONYMOUS') {
+        memberBadge.textContent = '🔒 LOGIN';
+        memberBadge.classList.add('free');
+        upgradeLink = link || '';
+        upgradeBtn.style.display = 'none';
+        setLogoutButtonState(false, false);
+        return;
+    }
+
+    if (state === 'PRO') {
+        memberBadge.textContent = '✅ PRO';
+        memberBadge.classList.add('pro');
+        upgradeBtn.style.display = 'none';
+        upgradeLink = '';
+        setLogoutButtonState(true, false);
+        return;
+    }
+
+    if (state === 'FREE') {
+        memberBadge.textContent = '🆓 FREE';
+        memberBadge.classList.add('free');
+        upgradeLink = link || '';
+        upgradeBtn.style.display = upgradeLink ? '' : 'none';
+        setLogoutButtonState(true, false);
+        return;
+    }
+
+    memberBadge.textContent = note ? `⚠️ ${note}` : '⚠️ Status unavailable';
+    memberBadge.classList.add('error');
+    upgradeBtn.style.display = 'none';
+    upgradeLink = '';
+    setLogoutButtonState(false, false);
+}
+
+async function syncMemberStatusFromHub() {
+    isStatusSyncing = true;
+    renderGuardMeta();
+
+    try {
+        const response = await fetch(USER_STATUS_ENDPOINT, {
+            method: 'GET',
+            credentials: 'include',
+            cache: 'no-store',
+            headers: { Accept: 'application/json' },
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok) {
+            consecutiveSyncFailures += 1;
+            if (payload?.code === 'ORIGIN_NOT_ALLOWED') {
+                renderMemberState('ERROR', '', 'Origin not allowed');
+                guardMetaContext = 'ระบบไม่อนุญาต Origin นี้';
+                setAuthGuard(true, 'Unauthorized origin. กรุณาใช้งาน Extension ID ที่อนุญาตเท่านั้น', 'เปิดหน้า Hub', HUB_BASE_URL);
+                return;
+            }
+            renderMemberState('ERROR');
+            guardMetaContext = 'ระบบตรวจสอบสถานะไม่สำเร็จ กดตรวจสอบอีกครั้งได้ทันที';
+            setAuthGuard(true, 'ไม่สามารถตรวจสอบสถานะสมาชิกได้ในตอนนี้', 'เปิดหน้า Hub', HUB_BASE_URL);
+            return;
+        }
+
+        consecutiveSyncFailures = 0;
+
+        if (payload?.status === 'ANONYMOUS') {
+            guardMetaContext = 'ล็อกอินแล้วรอสักครู่ ระบบจะอัปเดตสถานะอัตโนมัติ';
+            renderMemberState('ANONYMOUS', payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`);
+            setAuthGuard(
+                true,
+                'Please Login to SimpleEq Hub to continue.',
+                'Login to SimpleEq Hub',
+                payload?.link || `${HUB_BASE_URL}/auth/login`
+            );
+            return;
+        }
+
+        if (payload?.status === 'PRO') {
+            renderMemberState('PRO');
+            guardMetaContext = '';
+            setAuthGuard(false);
+            return;
+        }
+
+        const onboardingLink = payload?.onboardingLink || payload?.link || `${HUB_BASE_URL}/onboarding`;
+        renderMemberState('FREE', onboardingLink);
+
+        if (payload?.onboardingRequired) {
+            guardMetaContext = 'ชำระเงินแล้วให้รอสักครู่ ระบบกำลังตรวจสอบสถานะให้อัตโนมัติ';
+            setAuthGuard(
+                true,
+                'ชำระเงินและส่งสลิปก่อนเปิดใช้งานฟีเจอร์ทั้งหมด',
+                'ไปหน้า Onboarding',
+                onboardingLink
+            );
+            return;
+        }
+
+        guardMetaContext = 'กำลังรอแอดมินอนุมัติ PRO ระบบจะตรวจสอบให้อัตโนมัติทุก 45 วินาที';
+        setAuthGuard(
+            true,
+            'ระบบกำลังรอการอนุมัติ PRO จากแอดมิน หลังอนุมัติจะปลดล็อกอัตโนมัติ',
+            'เปิดหน้า Hub',
+            onboardingLink
+        );
+    } catch (e) {
+        consecutiveSyncFailures += 1;
+        renderMemberState('ERROR');
+        guardMetaContext = 'เชื่อมต่อ Hub ไม่สำเร็จ กดตรวจสอบอีกครั้ง หรือรอสักครู่';
+        setAuthGuard(true, 'เชื่อมต่อ Hub ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง', 'เปิดหน้า Hub', HUB_BASE_URL);
+    } finally {
+        lastStatusCheckAt = new Date();
+        isStatusSyncing = false;
+        renderGuardMeta();
+    }
+}
+
+function startStatusPolling() {
+    if (statusPollingTimer) {
+        clearInterval(statusPollingTimer);
+    }
+
+    syncMemberStatusFromHub();
+    statusPollingTimer = setInterval(() => {
+        syncMemberStatusFromHub();
+    }, STATUS_POLLING_INTERVAL_MS);
+}
 
 /* ----------------------------------------------------------------
    3.  Helpers – innerHtml → plain text (preserve table / list)
@@ -217,13 +479,14 @@ function syncState() {
     originalText = innerHtmlToPlainText(box1);
     latexText = box2.value;
 
-    clearBox1.disabled = isEmpty;
-    clearBox2.disabled = !latexText.trim();
-    convertBtn.disabled = isEmpty;
+    clearBox1.disabled = isAuthLocked || isEmpty;
+    clearBox2.disabled = isAuthLocked || !latexText.trim();
+    convertBtn.disabled = isAuthLocked || isEmpty;
     tableTag.style.display = hasTable ? '' : 'none';
 
     const canRender = hasTable ? !!originalHtml : !!latexText.trim();
-    renderBtn.disabled = !canRender;
+    renderBtn.disabled = isAuthLocked || !canRender;
+    copyResultBtn.disabled = isAuthLocked;
 }
 
 /* ----------------------------------------------------------------
@@ -236,6 +499,7 @@ box2.addEventListener('input', syncState);
 box2.addEventListener('paste', () => setTimeout(syncState, 0));
 
 convertBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     const result = textToLatex(originalText);
     box2.value = result;
     latexText = result;
@@ -249,6 +513,7 @@ convertBtn.addEventListener('click', () => {
 });
 
 renderBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box3Wrapper.style.display = '';
     if (hasTable && originalHtml) {
         renderWordHtml(originalHtml, box3);
@@ -258,6 +523,7 @@ renderBtn.addEventListener('click', () => {
 });
 
 clearBox1.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box1.innerHTML = '';
     originalText = ''; originalHtml = ''; hasTable = false;
     box3Wrapper.style.display = 'none';
@@ -265,12 +531,14 @@ clearBox1.addEventListener('click', () => {
 });
 
 clearBox2.addEventListener('click', () => {
+    if (isAuthLocked) return;
     box2.value = ''; latexText = '';
     box3Wrapper.style.display = 'none';
     syncState();
 });
 
 copyResultBtn.addEventListener('click', () => {
+    if (isAuthLocked) return;
     const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(box3);
@@ -284,6 +552,23 @@ copyResultBtn.addEventListener('click', () => {
         copyResultBtn.textContent = '📋 คัดลอก';
         copyResultBtn.classList.remove('success');
     }, 2500);
+});
+
+upgradeBtn.addEventListener('click', () => {
+    if (!upgradeLink) return;
+    openExternalLink(upgradeLink);
+});
+
+authGuardActionBtn.addEventListener('click', () => {
+    openExternalLink(authActionLink);
+});
+
+authGuardRefreshBtn.addEventListener('click', () => {
+    syncMemberStatusFromHub();
+});
+
+logoutBtn.addEventListener('click', () => {
+    handleLogout();
 });
 
 /* ----------------------------------------------------------------
@@ -322,6 +607,13 @@ function connectToBackground() {
 }
 
 connectToBackground();
+startStatusPolling();
+
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        syncMemberStatusFromHub();
+    }
+});
 
 /* Initial sync */
 syncState();
