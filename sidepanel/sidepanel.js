@@ -13,11 +13,13 @@ const clearBox1 = document.getElementById('clearBox1');
 const clearBox2 = document.getElementById('clearBox2');
 const tableTag = document.getElementById('tableTag');
 const autoBadge = document.getElementById('autoBadge');
+const box2Section = document.getElementById('box2Section');
 const memberBadge = document.getElementById('memberBadge');
 const logoutBtn = document.getElementById('logoutBtn');
 const upgradeBtn = document.getElementById('upgradeBtn');
 const box3Wrapper = document.getElementById('box3Wrapper');
 const box3 = document.getElementById('box3');
+const copyBox2Btn = document.getElementById('copyBox2Btn');
 const copyResultBtn = document.getElementById('copyResultBtn');
 const toolsArea = document.getElementById('toolsArea');
 const authGuard = document.getElementById('authGuard');
@@ -48,6 +50,12 @@ let consecutiveSyncFailures = 0;
 let lastStatusCheckAt = null;
 let guardMetaContext = 'ระบบจะตรวจสอบสถานะอัตโนมัติทุก 45 วินาที';
 let isLoggingOut = false;
+let lastCopyMessageSignature = '';
+let clipboardPollingTimer = null;
+let lastClipboardText = '';
+let suppressClipboardAutopasteUntil = 0;
+let lastAppliedCopyText = '';
+let lastAppliedCopyAt = 0;
 
 function setLogoutButtonState(visible, isLoading = false) {
     if (!logoutBtn) return;
@@ -65,6 +73,7 @@ function resetExtensionStateAfterLogout() {
     latexText = '';
     hasTable = false;
     box3.innerHTML = '';
+    box2Section.style.display = '';
     box3Wrapper.style.display = 'none';
     autoBadge.style.display = 'none';
     syncState();
@@ -403,13 +412,19 @@ function renderKatex(text, container) {
             continue;
         }
 
-        // inline math with mixed text
+        // inline / display math with mixed text
         const p = document.createElement('p');
         p.style.margin = '2px 0';
-        const parts = line.split(/(\$[^$\n]+\$)/g);
+        const parts = line.split(/(\$\$[^$\n]+\$\$|\$[^$\n]+\$)/g);
         for (const part of parts) {
+            const displayInlineMatch = part.match(/^\$\$([^$]+)\$\$$/);
             const m = part.match(/^\$([^$]+)\$$/);
-            if (m) {
+            if (displayInlineMatch) {
+                const displaySpan = document.createElement('span');
+                try { katex.render(displayInlineMatch[1], displaySpan, { displayMode: true, throwOnError: false }); }
+                catch (e) { displaySpan.textContent = part; }
+                p.appendChild(displaySpan);
+            } else if (m) {
                 const span = document.createElement('span');
                 try { katex.render(m[1], span, { displayMode: false, throwOnError: false }); }
                 catch (e) { span.textContent = part; }
@@ -437,7 +452,7 @@ function renderWordHtml(html, container) {
             const text = node.textContent || '';
             if (!/\$/.test(text)) return;
             const span = document.createElement('span');
-            const dollarRe = /(\$\$[^$]+\$\$|\$[^$\n]+\$)/g;
+            const dollarRe = /(\$\$[^$\n]+\$\$|\$[^$\n]+\$)/g;
             const parts = text.split(dollarRe);
             const matchDm = (s) => s.match(/^\$\$([^$]+)\$\$$/);
             const matchIm = (s) => s.match(/^\$([^$]+)\$$/);
@@ -472,29 +487,195 @@ function renderWordHtml(html, container) {
 /* ----------------------------------------------------------------
    6.  UI Sync
    ---------------------------------------------------------------- */
-function syncState() {
+function syncBoxWorkflowState() {
     isEmpty = !box1.textContent.trim() && !box1.innerHTML.includes('<img');
     hasTable = box1.querySelector('table') !== null;
     originalHtml = box1.innerHTML;
     originalText = innerHtmlToPlainText(box1);
     latexText = box2.value;
 
+    tableTag.style.display = hasTable ? '' : 'none';
+}
+
+function syncState() {
+    syncBoxWorkflowState();
+
+    if (isEmpty) {
+        setWorkflowPanelVisibility(true, false);
+    }
+
     clearBox1.disabled = isAuthLocked || isEmpty;
     clearBox2.disabled = isAuthLocked || !latexText.trim();
+    copyBox2Btn.disabled = isAuthLocked || !latexText.trim();
     convertBtn.disabled = isAuthLocked || isEmpty;
-    tableTag.style.display = hasTable ? '' : 'none';
 
     const canRender = hasTable ? !!originalHtml : !!latexText.trim();
     renderBtn.disabled = isAuthLocked || !canRender;
     copyResultBtn.disabled = isAuthLocked;
 }
 
+async function copyTextValue(text) {
+    const rawText = text || '';
+    if (!rawText.trim()) return false;
+
+    try {
+        await navigator.clipboard.writeText(rawText);
+        return true;
+    } catch (_e) {
+        const fallback = document.createElement('textarea');
+        fallback.value = rawText;
+        fallback.style.position = 'fixed';
+        fallback.style.left = '-9999px';
+        fallback.style.top = '-9999px';
+        document.body.appendChild(fallback);
+        fallback.focus();
+        fallback.select();
+        const copied = document.execCommand('copy');
+        fallback.remove();
+        return copied;
+    }
+}
+
+function buildCopySignature(payload) {
+    const textPart = (payload?.text || '').slice(0, 256);
+    const htmlPart = (payload?.html || '').slice(0, 256);
+    return `${textPart}::${htmlPart}`;
+}
+
+function handleIncomingCopyPayload(payload, source = 'live') {
+    const text = (payload?.text || '').trim();
+    const html = payload?.html || text;
+    if (!text.trim()) return;
+
+    const now = Date.now();
+    const justAppliedRecently = now - lastAppliedCopyAt < 900;
+    const isSameTextAsLastApplied = text === lastAppliedCopyText;
+
+    if (source !== 'live' && justAppliedRecently) {
+        return;
+    }
+
+    if (isSameTextAsLastApplied && now - lastAppliedCopyAt < 2500) {
+        return;
+    }
+
+    const signature = buildCopySignature(payload);
+    if (signature && signature === lastCopyMessageSignature && source === 'replay') {
+        return;
+    }
+    lastCopyMessageSignature = signature;
+
+    // copy ใหม่ --> ล้างกล่อง 1 ก่อน --> วาง
+    box1.innerHTML = '';
+    box1.textContent = '';
+    box2.value = '';
+    box3.innerHTML = '';
+    setWorkflowPanelVisibility(true, false);
+    syncState();
+
+    setTimeout(() => {
+        box1.innerHTML = html || text;
+        lastAppliedCopyText = text;
+        lastAppliedCopyAt = Date.now();
+
+        autoBadge.style.display = '';
+        setTimeout(() => { autoBadge.style.display = 'none'; }, 2500);
+
+        if (isAuthLocked) {
+            syncState();
+            return;
+        }
+
+        autoRenderFromBox1();
+        box1.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 0);
+}
+
+async function checkClipboardForAutopaste() {
+    if (document.hidden) return;
+    if (Date.now() < suppressClipboardAutopasteUntil) return;
+
+    try {
+        if (!navigator.clipboard?.readText) return;
+        const clipboardText = await navigator.clipboard.readText();
+        if (!clipboardText || !clipboardText.trim()) return;
+        if (clipboardText === lastClipboardText) return;
+
+        lastClipboardText = clipboardText;
+        handleIncomingCopyPayload({ html: clipboardText, text: clipboardText }, 'clipboard');
+    } catch (_e) {
+        // ignore permission/runtime clipboard errors
+    }
+}
+
+function startClipboardPolling() {
+    if (clipboardPollingTimer) {
+        clearInterval(clipboardPollingTimer);
+    }
+
+    checkClipboardForAutopaste();
+    clipboardPollingTimer = setInterval(checkClipboardForAutopaste, 1200);
+}
+
+function requestLastCopyEvent() {
+    try {
+        chrome.runtime.sendMessage({ type: 'GET_LAST_COPY_EVENT' }, (response) => {
+            if (chrome.runtime.lastError) return;
+            if (!response?.ok || !response?.payload) return;
+            handleIncomingCopyPayload(response.payload, 'replay');
+        });
+    } catch (_e) {
+        // no-op
+    }
+}
+
+function setWorkflowPanelVisibility(showBox2, showBox3) {
+    box2Section.style.display = '';
+    box3Wrapper.style.display = showBox3 ? '' : 'none';
+}
+
+function autoRenderFromBox1() {
+    if (isAuthLocked) return;
+
+    syncBoxWorkflowState();
+
+    if (isEmpty) {
+        box2.value = '';
+        latexText = '';
+        box3.innerHTML = '';
+        setWorkflowPanelVisibility(true, false);
+        syncState();
+        return;
+    }
+
+    const converted = textToLatex(originalText);
+    box2.value = converted;
+    latexText = converted;
+
+    setWorkflowPanelVisibility(true, true);
+    if (hasTable && originalHtml) {
+        renderWordHtml(originalHtml, box3);
+    } else {
+        renderKatex(box2.value, box3);
+    }
+
+    syncState();
+}
+
 /* ----------------------------------------------------------------
    7.  Event Listeners
    ---------------------------------------------------------------- */
 box1.addEventListener('input', syncState);
-box1.addEventListener('paste', () => setTimeout(syncState, 0));
+box1.addEventListener('paste', () => setTimeout(autoRenderFromBox1, 0));
 box1.addEventListener('keyup', syncState);
+box1.addEventListener('copy', () => {
+    if (isAuthLocked) return;
+    suppressClipboardAutopasteUntil = Date.now() + 1800;
+    setTimeout(() => {
+        box1.innerHTML = '';
+        autoRenderFromBox1();
+    }, 0);
+});
 box2.addEventListener('input', syncState);
 box2.addEventListener('paste', () => setTimeout(syncState, 0));
 
@@ -507,7 +688,7 @@ convertBtn.addEventListener('click', () => {
     convertBtn.textContent = '✅ แปลงเรียบร้อยแล้ว';
     convertBtn.classList.add('success');
     setTimeout(() => {
-        convertBtn.textContent = '🔄 แปลงเป็น LaTeX →';
+        convertBtn.textContent = '🔄 แปลง';
         convertBtn.classList.remove('success');
     }, 2000);
 });
@@ -526,7 +707,7 @@ clearBox1.addEventListener('click', () => {
     if (isAuthLocked) return;
     box1.innerHTML = '';
     originalText = ''; originalHtml = ''; hasTable = false;
-    box3Wrapper.style.display = 'none';
+    setWorkflowPanelVisibility(true, false);
     syncState();
 });
 
@@ -537,8 +718,23 @@ clearBox2.addEventListener('click', () => {
     syncState();
 });
 
+copyBox2Btn.addEventListener('click', async () => {
+    if (isAuthLocked) return;
+    suppressClipboardAutopasteUntil = Date.now() + 1800;
+    const copied = await copyTextValue(box2.value);
+    if (!copied) return;
+
+    copyBox2Btn.textContent = '✅ คัดลอกแล้ว';
+    copyBox2Btn.classList.add('success');
+    setTimeout(() => {
+        copyBox2Btn.textContent = '📋 คัดลอกทั้งหมด';
+        copyBox2Btn.classList.remove('success');
+    }, 2000);
+});
+
 copyResultBtn.addEventListener('click', () => {
     if (isAuthLocked) return;
+    suppressClipboardAutopasteUntil = Date.now() + 1800;
     const sel = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(box3);
@@ -582,18 +778,7 @@ function connectToBackground() {
 
         port.onMessage.addListener((message) => {
             if (message.type !== 'COPY_EVENT') return;
-            const { html, text } = message.payload;
-            if (!text || !text.trim()) return;
-
-            // Populate Box 1 with copied HTML (preserves tables, lists, bold)
-            box1.innerHTML = html || text;
-
-            // Flash "Auto" badge
-            autoBadge.style.display = '';
-            setTimeout(() => { autoBadge.style.display = 'none'; }, 2500);
-
-            syncState();
-            box1.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            handleIncomingCopyPayload(message.payload, message.replay ? 'replay' : 'live');
         });
 
         // Reconnect if the service worker restarts (MV3 service workers are ephemeral)
@@ -606,7 +791,6 @@ function connectToBackground() {
     }
 }
 
-connectToBackground();
 startStatusPolling();
 
 document.addEventListener('visibilitychange', () => {
