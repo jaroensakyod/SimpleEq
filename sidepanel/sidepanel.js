@@ -28,6 +28,7 @@ const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
 
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'https://simple-eq-hub.vercel.app' || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
+const PRODUCT_SLUG = "simple-eq"; // Added for Nexus Robustness
 const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/v1/auth/sign-out`;
 const STATUS_POLLING_INTERVAL_MS = 45000;
 
@@ -200,7 +201,9 @@ async function syncMemberStatusFromHub() {
     renderGuardMeta();
 
     try {
-        const response = await fetch(USER_STATUS_ENDPOINT, {
+        // Robustness: Clearly identify product we are asking about
+        const endpointWithProduct = `${USER_STATUS_ENDPOINT}?product=${PRODUCT_SLUG}`;
+        const response = await fetch(endpointWithProduct, {
             method: 'GET',
             credentials: 'include',
             cache: 'no-store',
