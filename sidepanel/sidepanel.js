@@ -29,7 +29,7 @@ const authGuardRefreshBtn = document.getElementById('authGuardRefreshBtn');
 const HUB_BASE_URL = localStorage.getItem('simpleEqHubBaseUrl') || 'https://simple-eq-hub.vercel.app' || 'http://localhost:3000';
 const USER_STATUS_ENDPOINT = `${HUB_BASE_URL}/api/v1/user/status`;
 const PRODUCT_SLUG = "simple-eq"; // Added for Nexus Robustness
-const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/v1/auth/sign-out`;
+const SIGN_OUT_ENDPOINT = `${HUB_BASE_URL}/api/v1/auth/sign-out?product=${encodeURIComponent(PRODUCT_SLUG)}`;
 const STATUS_POLLING_INTERVAL_MS = 45000;
 
 /* ----------------------------------------------------------------
